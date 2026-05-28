@@ -1,0 +1,258 @@
+CREATE DATABASE supply_chain_analytics;
+USE supply_chain_analytics;
+drop database supply_chain_analytics;
+CREATE TABLE order_fulfillment( 
+type VARCHAR(20),
+days_shipping_real INT,
+days_shipment_scheduled INT,
+benefit_per_order DECIMAL(10,2),
+sales_per_customer DECIMAL(10,2),
+delivery_status VARCHAR(30),
+late_delivery_risk INT,
+category_id INT,
+category_name VARCHAR(100),
+customer_city VARCHAR(100),
+customer_country VARCHAR(100),
+customer_id INT,
+customer_segment VARCHAR(30),
+customer_state VARCHAR(100),
+department_id INT,
+department_name VARCHAR(100),
+market VARCHAR(30),
+order_city VARCHAR(100),
+order_country VARCHAR(100),
+order_customer_id INT,
+order_date VARCHAR(30) ,
+order_id INT,
+order_item_discount DECIMAL(10,2),
+order_item_discount_rate DECIMAL(10,4),
+order_item_product_price DECIMAL(10,2),
+order_item_profit_ratio DECIMAL(10,4),
+order_item_quantity INT,
+sales DECIMAL(10,2),
+order_item_total DECIMAL(10,2),
+order_profit_per_order DECIMAL(10,2),
+order_region VARCHAR(100),
+order_state VARCHAR(100),
+order_status VARCHAR(30),
+product_category_id INT,
+product_name VARCHAR(150),
+product_price DECIMAL(10,2),
+product_status VARCHAR(30),
+shipping_date VARCHAR(30),
+shipping_mode VARCHAR(30));
+
+SET GLOBAL local_infile = 1;
+
+
+LOAD DATA LOCAL INFILE 'C:/Users/user/Downloads/ecommerce_supply_chain_dataset.csv'
+INTO TABLE order_fulfillment
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+SHOW WARNINGS;
+select * from order_fulfillment ;
+
+
+UPDATE order_fulfillment
+SET order_date = STR_TO_DATE(order_date, '%m/%d/%Y %H:%i');
+UPDATE order_fulfillment
+SET shipping_date = STR_TO_DATE(shipping_date, '%m/%d/%Y %H:%i');
+
+ALTER TABLE order_fulfillment
+MODIFY order_date DATETIME;
+ALTER TABLE order_fulfillment
+MODIFY shipping_date DATETIME;
+
+
+##Data Validation##
+
+
+
+## Checking NULL values in key columns
+
+SELECT 
+SUM(order_id IS NULL) AS order_id_nulls,
+SUM(order_date IS NULL) AS order_date_nulls,
+SUM(customer_id IS NULL) AS customer_nulls,
+SUM(product_name IS NULL) AS product_nulls
+FROM order_fulfillment;
+
+##Checking duplicate order IDs
+
+SELECT order_id, COUNT(*)
+FROM order_fulfillment
+GROUP BY order_id
+HAVING COUNT(*) > 1;
+
+##Checking date sanity
+
+SELECT COUNT(*)
+FROM order_fulfillment
+WHERE shipping_date < order_date;
+
+##Checking negative financial values
+
+SELECT COUNT(*)
+FROM order_fulfillment
+WHERE sales < 0 
+   OR order_item_total < 0 
+   OR product_price < 0;
+   
+##Checking quantity sanity 
+
+SELECT MIN(order_item_quantity), MAX(order_item_quantity)
+FROM order_fulfillment;
+
+##Checking delivery status distribution
+
+SELECT delivery_status, COUNT(*)
+FROM order_fulfillment
+GROUP BY delivery_status;
+
+##Checking shipping modes
+
+SELECT shipping_mode, COUNT(*)
+FROM order_fulfillment
+GROUP BY shipping_mode;
+
+##Check markets
+
+SELECT market, COUNT(*)
+FROM order_fulfillment
+GROUP BY market;
+
+##Check profit ratio range
+
+SELECT 
+MIN(order_item_profit_ratio),
+MAX(order_item_profit_ratio)
+FROM order_fulfillment;
+
+
+##
+SELECT 
+order_profit_per_order,
+sales,
+order_item_profit_ratio,
+(order_profit_per_order / sales) AS calculated_ratio
+FROM order_fulfillment
+ORDER BY order_item_profit_ratio ASC
+LIMIT 10;
+##
+
+
+##
+SELECT 
+order_profit_per_order / sales AS real_profit_ratio
+FROM order_fulfillment;
+##
+
+
+##
+SELECT 
+MIN(order_profit_per_order / sales),
+MAX(order_profit_per_order / sales)
+FROM order_fulfillment;
+##
+
+##
+SELECT 
+days_shipping_real,
+days_shipment_scheduled,
+(days_shipping_real - days_shipment_scheduled) AS delivery_delay_days
+FROM order_fulfillment;
+##
+
+##
+SELECT
+shipping_mode,
+AVG(days_shipping_real - days_shipment_scheduled) AS avg_delivery_delay
+FROM order_fulfillment
+GROUP BY shipping_mode;
+##
+
+CREATE VIEW delivery_analysis AS
+SELECT
+    order_date,
+    order_region,
+    category_name,
+    shipping_mode,
+    customer_segment,
+    delivery_status,
+    late_delivery_risk,
+    (days_shipping_real - days_shipment_scheduled) AS delivery_delay_days
+FROM order_fulfillment;
+-------
+
+
+ Which regions have highest delay rates ##
+SELECT
+    order_region,
+    COUNT(*) AS total_orders,
+    AVG(delivery_delay_days) AS avg_delay,
+    SUM(CASE WHEN delivery_status = 'Late Delivery' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS late_delivery_rate
+FROM delivery_analysis
+GROUP BY order_region;
+
+
+
+## Which shipping_mode have highest delay rates ##
+SELECT
+    shipping_mode,
+    COUNT(*) AS total_orders,
+    AVG(delivery_delay_days) AS avg_delay,
+    SUM(CASE WHEN delivery_status = 'Late Delivery' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS late_delivery_rate
+FROM delivery_analysis
+GROUP BY shipping_mode;
+
+
+## Which category have highest delay rates ##
+SELECT
+    category_name,
+    COUNT(*) AS total_orders,
+    AVG(delivery_delay_days) AS avg_delay,
+    SUM(CASE WHEN delivery_status = 'Late Delivery' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS late_delivery_rate
+FROM delivery_analysis
+GROUP BY category_name;
+
+
+## Which order region and shipping mode are causing the delay rates ##
+SELECT
+    order_region, shipping_mode,
+    COUNT(*) AS total_orders,
+    AVG(delivery_delay_days) AS avg_delay,
+    SUM(CASE WHEN delivery_status = 'Late Delivery' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS late_delivery_rate
+FROM delivery_analysis
+GROUP BY   order_region, shipping_mode;
+
+
+## Are delivery delay increasing overtime ##
+SELECT
+    DATE(order_date),
+    AVG(delivery_delay_days) AS avg_delay,
+    SUM(CASE WHEN delivery_status = 'Late Delivery' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS late_delivery_rate
+FROM delivery_analysis
+GROUP BY DATE(order_date);
+
+
+## Do order spike increases delivery delay ##
+SELECT
+    DATE(order_date),
+    COUNT(*) AS order_volume,
+    AVG(delivery_delay_days) AS avg_delay,
+    SUM(CASE WHEN delivery_status = 'Late Delivery' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS late_delivery_rate
+FROM delivery_analysis
+GROUP BY DATE(order_date);
+
+## Which customer segment faces more delays##
+SELECT
+    customer_segment,
+    AVG(delivery_delay_days) AS avg_delay,
+    SUM(CASE WHEN delivery_status = 'Late Delivery' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS late_delivery_rate
+FROM delivery_analysis
+GROUP BY customer_segment; 
+
+------------------------------------
